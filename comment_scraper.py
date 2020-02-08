@@ -163,7 +163,7 @@ def collect_candidates_from_comments( youtube_url, re_picks ):
     while True:
         new_candidates, has_more_comment = get_candidates_from_comments( s, comment_token, re_picks )
         candidates.extend( new_candidates ) 
-        print( '[SShampoo] scraping candidates... ', len(candidates) )
+        print( '[SShampoo] scraping comments... ', len(candidates) )
 
         if has_more_comment is False:
             print( '[SShampoo] finish scraping: {0}'.format( len(candidates)) )
