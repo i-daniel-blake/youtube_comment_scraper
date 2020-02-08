@@ -39,3 +39,8 @@ optional arguments:
 #     comments.xlsx file will be generated.
 > python comment_scraper.py https://www.youtube.com/watch?v=m6LNiUIN54U
 ```
+```
+# ex. If you do a subscriber event on your channel using comments, you can draw lots like this. 
+#     winners.xlsx file has been generated.
+> python comment_scraper.py https://www.youtube.com/watch?v=m6LNiUIN54U -u -p ([0-9]+번) -d
+```
