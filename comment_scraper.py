@@ -37,7 +37,27 @@ class Candidate(object):
 
     @staticmethod
     def excel_headers():
-        return [ 'Name', 'Email', 'Comment', 'Channel Url', 'Pick' ]
+        return [    
+                    { 'name':'Name', 'width':20 }, 
+                    { 'name':'Email', 'width':25 }, 
+                    { 'name':'Comment', 'width':30, 'text wrap':False },
+                    { 'name':'Channel Url', 'width':55} ,
+                    { 'name':'Pick', 'width':10 } 
+                ]
+    
+    @staticmethod
+    def excel_headers_for_winner():
+        headers = [ 
+                    {'name':'Pick', 'width':10 }, 
+                    {'name':'The number of candidates', 'width':10 },
+                    {'name':'Candidates', 'width':25, 'text_wrap':True } 
+                ]
+
+        for header in Candidate.excel_headers():
+            header['name'] = "Winner's " + header['name']
+            headers.append( header )
+
+        return headers
 
 
 class CommentTokens(object):
@@ -163,7 +183,7 @@ def collect_candidates_from_comments( youtube_url, re_picks ):
     while True:
         new_candidates, has_more_comment = get_candidates_from_comments( s, comment_token, re_picks )
         candidates.extend( new_candidates ) 
-        print( '[SShampoo] scraping comments... ', len(candidates) )
+        print( '[SShampoo] scraping candidates... ', len(candidates) )
 
         if has_more_comment is False:
             print( '[SShampoo] finish scraping: {0}'.format( len(candidates)) )
@@ -183,7 +203,7 @@ def remove_candidates( candidates, remove_dict ):
     
     for idx in range( len(candidates)-1, -1, -1):       # iterate reverse order
         if remove_dict.get( candidates[idx].id ) != None:
-            print( '[SShampoo] remove winner from candidates: ', candidates[idx].name )
+            # print( '[SShampoo] remove winner from candidates: ', candidates[idx].name )
             del( candidates[idx] )
     
 
@@ -211,7 +231,7 @@ def draw_lots( candidates, file_path='winners.xlsx' ):
             else:
                 pick_buckets.get( pick ).append( candidate )
 
-    result_text = ''
+    print( '\nWinners! -----------------------------------------\n' )
     draw_lots_list = []            # 2-dimentional list to save results into excel file
     winners = {}
     picks = [ *pick_buckets ]
@@ -235,19 +255,13 @@ def draw_lots( candidates, file_path='winners.xlsx' ):
         
         draw_lots_list.append( [ pick, len(candidates), names ] + winner.to_excel_row() )
 
-        result_text += 'Pick: {0}\n'.format( pick )
-        result_text += 'Candidates({0}): {1}\n'.format( len(candidates), names )
-        result_text += 'Winner: {0} {1}\n'.format( winner.name, winner.emails )
-        result_text += 'Comment: {0}\n'.format( winner.comment )
-        result_text += '\n\n--------------------------------------------------\n\n'
-    
-    print( result_text )
+        print( 'Pick: {0}'.format( pick ) )
+        print( 'Candidates({0}): {1}'.format( len(candidates), names ) )
+        print( 'Winner: {0} {1}'.format( winner.name, winner.emails ) )
+        print( 'Comment: {0}'.format( winner.comment ) )
+        print( '\n--------------------------------------------------\n' )
 
-    xlsx_headers = [ 'Pick', 'The number of candidates', 'Candidates' ]
-    for header in Candidate.excel_headers():
-        xlsx_headers.append( "Winner's " + header )
-
-    write_xlsx_file( file_path, xlsx_headers, draw_lots_list)
+    write_xlsx_file( file_path, Candidate.excel_headers_for_winner(), draw_lots_list)
 
 
 def write_xlsx_file( path, headers, data_matrix ):
@@ -258,8 +272,15 @@ def write_xlsx_file( path, headers, data_matrix ):
     POS_FORMAT = '{0}1' # ex. A1, B2
     header_column = 'A'
     bold = workbook.add_format( {'bold': True} )
+    text_wrap = workbook.add_format( {'text_wrap': True} )
     for header in headers:
-        worksheet.write( POS_FORMAT.format( header_column ), header, bold )
+        worksheet.write( POS_FORMAT.format( header_column ), header['name'], bold )
+        # add format
+        if header.get( 'text_wrap' ) != None:
+            worksheet.set_column( '{0}:{0}'.format( header_column ), None, text_wrap )
+        if header.get( 'width' ) != None:
+            worksheet.set_column( '{0}:{0}'.format( header_column ), header.get('width') )
+       
         header_column = chr( ord(header_column) + 1 ) 
     
     for row_idx in range( 0, len( data_matrix ) ):
@@ -304,7 +325,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--draw', action='store_true', help="draw lots using picks")
     parser.add_argument('-f', '--filename', metavar='comments', default='comments', help='file name of xlsx output file')
     args = parser.parse_args()
-    #args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d'] )
+    # args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d'] )
 
     if None == args.url:
         print( 'Please, input youtube url. ex) python comment_scraper.py', SAMPLE_YOUTUBE_URL )
