@@ -10,6 +10,7 @@ import re
 import random
 import xlsxwriter
 import argparse
+import concurrent.futures
 
 class Candidate(object):
     """Candidate"""
@@ -63,27 +64,24 @@ class Candidate(object):
 class CommentTokens(object):
     """CommentTokens"""
 
-    def __init__(self, ctoken, itct, session_token):
+    def __init__(self, ctoken, itct, session_token, channel_id):
         self.ctoken = ctoken
         self.itct = itct
         self.session_token = session_token
+        self.channel_id = channel_id
 
     def dump(self):
-        print( '[SShampoo] CommentTokens - ctoken: {0}, itct: {1}, session_token: {2}'.format( self.ctoken, self.itct, self.session_token ) )
+        print( '[SShampoo] CommentTokens - ctoken: {0}, itct: {1}, session_token: {2}, channel_id: {3}'.format( self.ctoken, self.itct, self.session_token, self.channel_id ) )
 
 
-def get_tokens_for_comment_api( session, youtube_url ):
-
-    headers = { 'user-agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36' }
-
-    r = session.get( youtube_url, headers=headers )
-
+def get_initial_data_of_youtube( doc ):
     INIT_DAT_PREFIX         = 'window["ytInitialData"] ='
     SESSION_TOKEN_PREFIX    = '"XSRF_TOKEN":"'
 
     session_token = None
-    json_string = ''
-    lines = r.text.splitlines()
+    initial_data = ''
+
+    lines = doc.splitlines()
     for line in lines:
         line = line.strip()
         if session_token is None and line.find( SESSION_TOKEN_PREFIX ) > 0:
@@ -92,16 +90,114 @@ def get_tokens_for_comment_api( session, youtube_url ):
             session_token = line[start:end]         
 
         if line.startswith( INIT_DAT_PREFIX ) :
-            json_string = line[ len(INIT_DAT_PREFIX) : -1 ]
+            initial_data = line[ len(INIT_DAT_PREFIX) : -1 ]
             break
 
-    json_data = json.loads( json_string )
+    return initial_data, session_token
+    
+
+def get_subscribed_channel_id( session, browse_url ):
+    YOUTUBE_HOST_URL = 'https://www.youtube.com'
+
+    headers = { 'accept-language' : 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7' }
+
+    r = session.get( YOUTUBE_HOST_URL + browse_url, headers=headers )
+    
+    json_data = json.loads( r.text )
+    channels_html = None
+    try:
+        channels_html = json_data['content_html']
+    except:
+        print( '[SShampoo] error occured, try one more time...', browse_url )
+        return [], browse_url # try again
+
+    soup = BeautifulSoup( channels_html, 'html.parser' )
+    items = soup.select( 'div.yt-lockup-content' )
+
+    channel_ids = []
+    for item in items :
+        channel_url = item.select( 'h3 > a' )[0]['href']
+        channel_id = channel_url.split( '/')[-1]
+        channel_ids.append( channel_id )
+
+    # check more button
+    next_browse_path = None
+    LOAD_MORE_DATA_ID = 'load_more_widget_html'
+    if LOAD_MORE_DATA_ID in json_data:
+        load_more_html  = json_data[LOAD_MORE_DATA_ID]
+        if load_more_html != None and len( load_more_html ) >0:              
+            soup = BeautifulSoup( load_more_html, 'html.parser' )
+            next_browse_path = soup.select( 'button' )[0]['data-uix-load-more-href']
+
+    return channel_ids, next_browse_path
+
+
+def check_subscription( channel_url, channel_id ):
+    headers = { 'user-agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36' }
+
+    session = requests.session()
+    r = session.get( channel_url, headers=headers )
+
+    initial_data, session_token = get_initial_data_of_youtube( r.text )
+
+    json_data = json.loads( initial_data )
+    
+    grid_data = None
+    tabs = json_data['contents']['twoColumnBrowseResultsRenderer']['tabs']
+    for tab in tabs:
+        try:
+            grid_data = tab['tabRenderer']['content']['sectionListRenderer']['contents'][0]['itemSectionRenderer']['contents'][0]['gridRenderer']
+        except KeyError:
+            continue
+        
+    if grid_data == None:
+        print( '[SShampoo] can not read subscriptions...', channel_url )
+        return False
+            
+    # check subscription
+    subscriptions = grid_data['items']
+    for subscription in subscriptions:
+        if channel_id == subscription['gridChannelRenderer']['channelId']:
+            return True
+
+    # tokens for browsing channel subscription
+    if 'continuations' not in grid_data:
+        return False
+
+    continuations = grid_data['continuations'][0]['nextContinuationData']
+    ctoken = continuations['continuation']
+    itct = continuations['clickTrackingParams']
+
+    browse_url = '/browse_ajax?ctoken={0}&itct={1}'.format( ctoken, itct )
+
+    while browse_url != None:
+        channel_ids, browse_url = get_subscribed_channel_id( session, browse_url )
+        if len( channel_ids ) <= 0:
+            session = requests.session()
+            print( '[SShampoo] reconnect session...' )
+
+        if channel_id in channel_ids:
+            return True
+
+    return False
+
+
+def get_tokens_for_comment_api( session, youtube_url ):
+
+    headers = { 'user-agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36' }
+
+    r = session.get( youtube_url, headers=headers )
+
+    initial_data, session_token = get_initial_data_of_youtube( r.text )
+
+    json_data = json.loads( initial_data )
     continuations = json_data['contents']['twoColumnWatchNextResults']['results']['results']['contents'][2]['itemSectionRenderer']['continuations'][0]['nextContinuationData']
 
     ctoken = continuations['continuation']
     itct = continuations['clickTrackingParams']
 
-    return CommentTokens( ctoken, itct, session_token )
+    channelId = json_data['contents']['twoColumnWatchNextResults']['results']['results']['contents'][1]['videoSecondaryInfoRenderer']['owner']['videoOwnerRenderer']['title']['runs'][0]['navigationEndpoint']['browseEndpoint']['browseId']
+    return CommentTokens( ctoken, itct, session_token, channelId )
 
 
 def get_candidates_from_comments( session, comment_token, re_picks ):
@@ -178,7 +274,7 @@ def merge_candidates( candidates, new_candidates ):
 def collect_candidates_from_comments( youtube_url, re_picks ):
     s = requests.session()
     comment_token = get_tokens_for_comment_api( s, youtube_url )
-
+    
     candidates = [] 
     while True:
         new_candidates, has_more_comment = get_candidates_from_comments( s, comment_token, re_picks )
@@ -189,7 +285,7 @@ def collect_candidates_from_comments( youtube_url, re_picks ):
             print( '[SShampoo] finish scraping: {0}'.format( len(candidates)) )
             break            
     
-    return candidates
+    return candidates, comment_token.channel_id
 
 
 def write_text_file( path, text ):
@@ -314,6 +410,31 @@ def make_unique_candidate_list( candidates ):
     return unique_list
 
 
+def make_subscribed_candidate_list( candidates, channel_id ):
+    YOUTUBE_CHANNEL_URL_FORMAT = 'https://youtube.com{0}/channels'
+
+    subscriber_list = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {}
+
+        for candidate in candidates:
+            youtube_channel_url = YOUTUBE_CHANNEL_URL_FORMAT.format( candidate.id )
+            futures[ executor.submit( check_subscription, youtube_channel_url, channel_id ) ] = candidate
+
+        for future in concurrent.futures.as_completed(futures):
+            subscriber = futures[ future ]
+            try:
+                if True == future.result():
+                    subscriber_list.append( subscriber )
+                else:
+                    print( '[SShampoo] delete unsubscribed user - ', subscriber.id )
+
+            except Exception as exc:
+                print('[SShampoo] %r generated an exception: %s' % (subscriber.id, exc))
+    
+    return subscriber_list
+        
+
 if __name__ == '__main__':
     SAMPLE_YOUTUBE_URL = 'https://www.youtube.com/watch?v=m6LNiUIN54U'
 
@@ -324,20 +445,26 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--picks', metavar='([0-9]+번)', default='', help="collect user's pick using this regular expression")
     parser.add_argument('-d', '--draw', action='store_true', help="draw lots using picks")
     parser.add_argument('-f', '--filename', metavar='comments', default='comments', help='file name of xlsx output file')
+    parser.add_argument('-s', '--subscription', action='store_true', help='collect subscribers only')
     args = parser.parse_args()
-    # args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d'] )
+    # args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d', '-s'] )
 
     if None == args.url:
         print( 'Please, input youtube url. ex) python comment_scraper.py', SAMPLE_YOUTUBE_URL )
     else:
         print( '[SShampoo] start scraping...' )
 
-        candidates = collect_candidates_from_comments( args.url, args.picks )
+        candidates, channel_id = collect_candidates_from_comments( args.url, args.picks )
         if args.unique:
             candidates = make_unique_candidate_list( candidates )
-        
+
         XLSX_FILE_EXT = '.xlsx'
         save_candidates_to_xlsx_file( args.filename + XLSX_FILE_EXT, candidates )
+
+        if args.subscription:
+            candidates = make_subscribed_candidate_list( candidates, channel_id )
+            save_candidates_to_xlsx_file( args.filename + '_subscriber_only' + XLSX_FILE_EXT, candidates )
+        
         print( '[SShampoo] total candidates:', len(candidates) )
 
         if args.draw:
