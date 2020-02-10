@@ -410,30 +410,65 @@ def make_unique_candidate_list( candidates ):
     return unique_list
 
 
-def make_subscribed_candidate_list( candidates, channel_id ):
-    YOUTUBE_CHANNEL_URL_FORMAT = 'https://youtube.com{0}/channels'
+def check_subscription_by_youtube_api( candidate, channel_id, api_key ):
+    subscriber_list = []
 
+    SUBSCRIPTION_API = 'https://content.googleapis.com/youtube/v3/subscriptions'
+
+    params = {
+        'channelId' : candidate.id.split( '/' )[-1],
+        'forChannelId' : channel_id,
+        'part' : 'snippet',
+        'key' : api_key
+    }
+    
+    headers = {
+        'referer': 'https://explorer.apis.google.com',
+        'user-agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36'
+    }
+
+    r = requests.get( SUBSCRIPTION_API, params=params, headers=headers )
+    if r.status_code == 200:
+        json_data = json.loads( r.text )
+        if json_data['pageInfo']['totalResults'] > 0:
+            return True
+
+    return False
+
+
+def make_subscribed_candidate_list( candidates, channel_id, apikey ):
+    YOUTUBE_CHANNEL_URL_FORMAT = 'https://youtube.com{0}/channels?view=56&shelf_id=0'
+
+    index_list = []
     subscriber_list = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {}
 
-        for candidate in candidates:
-            youtube_channel_url = YOUTUBE_CHANNEL_URL_FORMAT.format( candidate.id )
-            futures[ executor.submit( check_subscription, youtube_channel_url, channel_id ) ] = candidate
+        for idx in range( 0, len(candidates) ):
+            candidate = candidates[idx]
+            if len( apikey ) > 0:
+                futures[ executor.submit( check_subscription_by_youtube_api, candidate, channel_id, apikey ) ] = idx
+            else:
+                youtube_channel_url = YOUTUBE_CHANNEL_URL_FORMAT.format( candidate.id )
+                futures[ executor.submit( check_subscription, youtube_channel_url, channel_id ) ] = idx
 
         for future in concurrent.futures.as_completed(futures):
-            subscriber = futures[ future ]
+            idx = futures[ future ]
             try:
                 if True == future.result():
-                    subscriber_list.append( subscriber )
+                    index_list.append( idx )
                 else:
-                    print( '[SShampoo] delete unsubscribed user - ', subscriber.id )
+                    print( '[SShampoo] delete unsubscribed user - ', candidates[idx].id )
 
             except Exception as exc:
-                print('[SShampoo] %r generated an exception: %s' % (subscriber.id, exc))
+                print('[SShampoo] %r generated an exception: %s' % (candidates[idx].id, exc))
     
+        index_list.sort()
+        for idx in index_list:
+            subscriber_list.append( candidates[idx] )
+
     return subscriber_list
-        
+
 
 if __name__ == '__main__':
     SAMPLE_YOUTUBE_URL = 'https://www.youtube.com/watch?v=m6LNiUIN54U'
@@ -446,8 +481,10 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--draw', action='store_true', help="draw lots using picks")
     parser.add_argument('-f', '--filename', metavar='comments', default='comments', help='file name of xlsx output file')
     parser.add_argument('-s', '--subscription', action='store_true', help='collect subscribers only')
+    parser.add_argument('-k', '--apikey', metavar='AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM', default='', help='youtube API key for checking subscription. Optional.')
+    # get free key from https://developers.google.com/youtube/v3/docs/subscriptions/list?apix=true&apix_params=%7B%22part%22%3A%22snippet%22%2C%22channelId%22%3A%22UCHk5WmMQA7TL4aw3GhYi2CQ%22%2C%22forChannelId%22%3A%22UCojDgwOQ7UWBi10zL1GutEw%22%7D
     args = parser.parse_args()
-    # args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d', '-s'] )
+    #args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d', '-s'] ) #, '-k', 'AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM'] )
 
     if None == args.url:
         print( 'Please, input youtube url. ex) python comment_scraper.py', SAMPLE_YOUTUBE_URL )
@@ -462,7 +499,7 @@ if __name__ == '__main__':
         save_candidates_to_xlsx_file( args.filename + XLSX_FILE_EXT, candidates )
 
         if args.subscription:
-            candidates = make_subscribed_candidate_list( candidates, channel_id )
+            candidates = make_subscribed_candidate_list( candidates, channel_id, args.apikey )           
             save_candidates_to_xlsx_file( args.filename + '_subscriber_only' + XLSX_FILE_EXT, candidates )
         
         print( '[SShampoo] total candidates:', len(candidates) )
