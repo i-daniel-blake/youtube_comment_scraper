@@ -48,7 +48,6 @@ optional arguments:
 # ex. You can save subscriber's comments only using -s option. 
 #     I recommend you to add youtube data api key using -k option.
 #     ( You could find free api key at the following site;
-#     https://developers.google.com/youtube/v3/docs/subscriptions/list?
-#     apix=true&apix_params=%7B%22%20%20%20%20%20%20%20%20%20part%22%3A%22snippet%2CcontentDetails%20%20%20%20%20%20%20%20%20%22%2C%22channelId%22%3A%22UCAuUUnT6oDeKwE6v1NGQxug%22%7D )
+#     https://developers.google.com/youtube/v3/docs/subscriptions/list?apix=true )
 > python comment_scraper.py https://www.youtube.com/watch?v=m6LNiUIN54U -u -p ([0-9]+번) -d -s -k AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM
 ```
