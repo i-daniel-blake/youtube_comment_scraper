@@ -11,6 +11,7 @@ import random
 import xlsxwriter
 import argparse
 import concurrent.futures
+import datetime
 
 class Candidate(object):
     """Candidate"""
@@ -200,6 +201,56 @@ def get_tokens_for_comment_api( session, youtube_url ):
     return CommentTokens( ctoken, itct, session_token, channelId )
 
 
+def get_candidates_from_comments_by_youtube_api( video_id, page_token, re_picks, api_key, check_time=False ):
+    COMMENT_THREADS_API = 'https://www.googleapis.com/youtube/v3/commentThreads'
+
+    params = {
+        'videoId' : video_id,
+        'part' : 'snippet',
+        'key' : api_key,
+        'textFormat' : 'plainText',
+        'pageToken' : page_token
+    }
+    
+    headers = {
+        'referer': 'https://explorer.apis.google.com',
+        'user-agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36'
+    }
+
+    r = requests.get( COMMENT_THREADS_API, params=params, headers=headers )
+
+    pick_re = re.compile( re_picks )
+    email_re = re.compile( '([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)' )
+
+    json_data = json.loads( r.text )
+    next_page_token = None
+    if json_data.get( 'nextPageToken' ) != None:
+        next_page_token = json_data['nextPageToken']
+
+    comments = json_data['items']
+    candidates = []
+    for comment in comments:
+        item = comment['snippet']['topLevelComment']['snippet']
+        id = item['authorChannelUrl'].replace( 'http://www.youtube.com', '' )
+        name = item['authorDisplayName']
+        text = item['textDisplay']
+        emails = email_re.findall( text )
+        picks = pick_re.findall( text )
+        
+        time_str = item['publishedAt'] # 2020-02-12T15:10:51.000Z
+        time_obj = datetime.datetime.strptime( time_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+        time_obj += datetime.timedelta(hours=9) # to kst
+        if check_time:
+            if time_obj.date().month == 2 and time_obj.date().day < 14:
+                candidates.append( Candidate( id, name, set( picks ), text, emails ) )
+            else:
+                print( '[SShampoo] Error: timeout', name, time_obj )
+        else:
+            candidates.append( Candidate( id, name, set( picks ), text, emails ) )
+
+    return candidates, next_page_token
+
+
 def get_candidates_from_comments( session, comment_token, re_picks ):
     COMMENT_API = 'https://www.youtube.com/comment_service_ajax'
 
@@ -271,19 +322,31 @@ def merge_candidates( candidates, new_candidates ):
     return merged_candidates
 
 
-def collect_candidates_from_comments( youtube_url, re_picks ):
+def collect_candidates_from_comments( youtube_url, re_picks, api_key ):
     s = requests.session()
     comment_token = get_tokens_for_comment_api( s, youtube_url )
     
+    video_id = 'm6LNiUIN54U'
+    page_token = ''
     candidates = [] 
     while True:
-        new_candidates, has_more_comment = get_candidates_from_comments( s, comment_token, re_picks )
-        candidates.extend( new_candidates ) 
-        print( '[SShampoo] scraping candidates... ', len(candidates) )
+        if len( api_key ) > 0:
+            new_candidates, page_token = get_candidates_from_comments_by_youtube_api( video_id, page_token, re_picks, api_key )
+            candidates.extend( new_candidates ) 
+            print( '[SShampoo] scraping candidates... ', len(candidates) )
 
-        if has_more_comment is False:
-            print( '[SShampoo] finish scraping: {0}'.format( len(candidates)) )
-            break            
+            if page_token == None or len(page_token) <= 0:
+                print( '[SShampoo] finish scraping: {0}'.format( len(candidates)) )
+                break 
+
+        else:
+            new_candidates, has_more_comment = get_candidates_from_comments( s, comment_token, re_picks )
+            candidates.extend( new_candidates ) 
+            print( '[SShampoo] scraping candidates... ', len(candidates) )
+
+            if has_more_comment is False:
+                print( '[SShampoo] finish scraping: {0}'.format( len(candidates)) )
+                break            
     
     return candidates, comment_token.channel_id
 
@@ -484,14 +547,14 @@ if __name__ == '__main__':
     parser.add_argument('-k', '--apikey', metavar='AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM', default='', help='youtube API key for checking subscription. Optional.')
     # get free key from https://developers.google.com/youtube/v3/docs/subscriptions/list?apix=true&apix_params=%7B%22part%22%3A%22snippet%22%2C%22channelId%22%3A%22UCHk5WmMQA7TL4aw3GhYi2CQ%22%2C%22forChannelId%22%3A%22UCojDgwOQ7UWBi10zL1GutEw%22%7D
     args = parser.parse_args()
-    #args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d', '-s'] ) #, '-k', 'AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM'] )
+    # args = parser.parse_args( ['https://www.youtube.com/watch?v=m6LNiUIN54U', '-p', '([0-9]+번)', '-u', '-d', '-s', '-k', 'AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM'] )
 
     if None == args.url:
         print( 'Please, input youtube url. ex) python comment_scraper.py', SAMPLE_YOUTUBE_URL )
     else:
         print( '[SShampoo] start scraping...' )
 
-        candidates, channel_id = collect_candidates_from_comments( args.url, args.picks )
+        candidates, channel_id = collect_candidates_from_comments( args.url, args.picks, args.apikey )
         if args.unique:
             candidates = make_unique_candidate_list( candidates )
 
