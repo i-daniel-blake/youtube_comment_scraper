@@ -18,9 +18,10 @@ This is a simple python script for scraping the comments of youtube.
 # Usage
 
 ```
-usage: comment_scraper.py [-h] [-u] [-p [0-9]+번] [-d] [-f comments]
+usage: comment_scraper.py [-h] [-u] [-p [0-9]+번] [-d] [-f comments] [-s]
+                          [-k AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM]
                           https://www.youtube.com/watch?v=m6LNiUIN54U
-                          
+
 positional arguments:
   https://www.youtube.com/watch?v=m6LNiUIN54U
                         youtube url that you want to scrape comments.
@@ -33,6 +34,9 @@ optional arguments:
   -d, --draw            draw lots using picks
   -f comments, --filename comments
                         file name of xlsx output file
+  -s, --subscription    collect subscribers only
+  -k AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM, --apikey AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM
+                        youtube API key for checking subscription. Optional.
 ```
 ```
 # ex. Scraping the comments of youtube on a specific youtube URL.
