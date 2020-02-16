@@ -44,3 +44,10 @@ optional arguments:
 #     winners.xlsx file has been generated.
 > python comment_scraper.py https://www.youtube.com/watch?v=m6LNiUIN54U -u -p ([0-9]+번) -d
 ```
+```
+# ex. You can save subscriber's comments only using -s option. 
+#     I recommend you to add youtube data api key using -k option.
+#     ( You could find free api key at the following site;
+#     https://developers.google.com/youtube/v3/docs/subscriptions/list?apix=true )
+> python comment_scraper.py https://www.youtube.com/watch?v=m6LNiUIN54U -u -p ([0-9]+번) -d -s -k AIzaSyAa8yy0GdcGPHdtD083HiGGx_S0vMPScDM
+```
