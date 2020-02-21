@@ -326,7 +326,9 @@ def collect_candidates_from_comments( youtube_url, re_picks, api_key ):
     s = requests.session()
     comment_token = get_tokens_for_comment_api( s, youtube_url )
     
-    video_id = 'm6LNiUIN54U'
+    parsed = urllib.parse.urlparse( youtube_url )
+    video_id = urllib.parse.parse_qs( parsed.query )['v']
+    
     page_token = ''
     candidates = [] 
     while True:
